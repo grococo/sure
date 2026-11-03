@@ -14,6 +14,7 @@ en:
     duplicate_connection: "This Trade Republic account is already connected. The new connection was removed."
     defaults:
       name: Trade Republic
+      tax_wrapper_name: PEA
     trade_republic_item:
       deletion_in_progress: Deletion in progress
       syncing: Syncing

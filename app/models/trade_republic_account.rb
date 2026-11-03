@@ -18,6 +18,13 @@ class TradeRepublicAccount < ApplicationRecord
   # Trade Republic lists crypto under pseudo-ISINs starting with XF000.
   CRYPTO_ISIN_PREFIX = "XF000"
 
+  # Each Trade Republic account pair (securities + cash) has a product type:
+  # DEFAULT is the regular brokerage account, TAX_WRAPPER a tax-advantaged
+  # wrapper such as the French PEA. Portfolio and Cash accounts of the same
+  # pair are siblings; crypto only exists on the DEFAULT pair.
+  DEFAULT_PRODUCT_TYPE = "DEFAULT"
+  TAX_WRAPPER_PRODUCT_TYPE = "TAX_WRAPPER"
+
   has_one :account_provider, as: :provider, dependent: :destroy
   has_one :account, through: :account_provider, source: :account
   has_one :linked_account, through: :account_provider, source: :account
@@ -47,7 +54,11 @@ class TradeRepublicAccount < ApplicationRecord
   end
 
   def sibling(kind)
-    trade_republic_item.trade_republic_accounts.find_by(kind: kind)
+    trade_republic_item.trade_republic_accounts.find_by(kind: kind, product_type: product_type)
+  end
+
+  def tax_wrapper?
+    product_type == TAX_WRAPPER_PRODUCT_TYPE
   end
 
   # Manual accounts this provider account can be linked to. Crypto only

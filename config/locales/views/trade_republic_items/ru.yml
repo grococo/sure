@@ -170,6 +170,7 @@ ru:
     duplicate_connection: "Этот счёт Trade Republic уже подключён. Новое подключение удалено."
     defaults:
       name: Trade Republic
+      tax_wrapper_name: PEA
     sync_status:
       no_accounts: Счёт Trade Republic ещё не найден
       all_linked:

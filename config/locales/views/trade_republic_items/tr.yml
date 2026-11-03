@@ -152,6 +152,7 @@ tr:
     duplicate_connection: "Bu Trade Republic hesabı zaten bağlı. Yeni bağlantı kaldırıldı."
     defaults:
       name: Trade Republic
+      tax_wrapper_name: PEA
     sync_status:
       no_accounts: Henüz Trade Republic hesabı keşfedilmedi
       all_linked:

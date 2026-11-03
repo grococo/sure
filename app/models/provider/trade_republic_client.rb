@@ -438,7 +438,14 @@ class Provider::TradeRepublicClient
         warnings << "portfolio fetch failed: #{e.message}"
       end
 
-      known_symbols = self.class.instrument_symbols_from_positions(positions)
+      account_pairs = fetch_account_pairs(websocket)
+      default_cash_account_number = account_pairs.find { |pair| pair["securitiesAccountNumber"].to_s == account["securitiesAccountNumber"].to_s }&.dig("cashAccountNumber")
+      tax_wrappers = account_pairs
+        .reject { |pair| pair["securitiesAccountNumber"].to_s == account["securitiesAccountNumber"].to_s }
+        .map { |pair| sync_tax_wrapper(websocket, pair, known_instrument_symbols: known_instrument_symbols) }
+      tax_wrappers.each { |wrapper| warnings.concat(wrapper["warnings"]) }
+
+      known_symbols = self.class.instrument_symbols_from_positions(positions + tax_wrappers.flat_map { |wrapper| wrapper["positions"] })
       instrument_symbols = known_symbols.dup
       unresolved_symbol_isins = []
 
@@ -473,7 +480,12 @@ class Provider::TradeRepublicClient
         "status" => domain_statuses.values.all? { |status| status == "success" } ? "ok" : "partial",
         "session_txt" => session.cookies_blob,
         "domain_statuses" => domain_statuses,
-        "account" => { "brokerage_account_id" => account["securitiesAccountNumber"].to_s, "currency" => account["currency"] },
+        "account" => {
+          "brokerage_account_id" => account["securitiesAccountNumber"].to_s,
+          "currency" => account["currency"],
+          "cash_account_number" => default_cash_account_number&.to_s
+        }.compact,
+        "tax_wrappers" => tax_wrappers.map { |wrapper| wrapper.except("warnings") },
         "cash" => (cash && {
           "amount" => decimal_string(money_amount(cash)),
           "currency" => money_currency(cash)
@@ -1274,6 +1286,69 @@ class Provider::TradeRepublicClient
       PORTFOLIO_CATEGORIES[category_type.to_s] || category_type
     end
 
+    # Every securities/cash account pair of the login, e.g. the regular
+    # brokerage account and a French PEA. Older accounts or a failed
+    # subscription yield no pairs, which keeps the default-account-only sync.
+    def fetch_account_pairs(websocket)
+      response = optional_subscribe(websocket, type: "accountPairs")
+      Array(response.is_a?(Hash) ? response["accounts"] : nil).select do |pair|
+        pair.is_a?(Hash) && pair["securitiesAccountNumber"].present?
+      end
+    end
+
+    # Cash and positions of an account pair other than the default one. Its
+    # timeline events arrive in the shared timeline and are told apart by
+    # their cashAccountNumber.
+    def sync_tax_wrapper(websocket, pair, known_instrument_symbols: {})
+      sec_acc_no = pair["securitiesAccountNumber"].to_s
+      cash_acc_no = pair["cashAccountNumber"].to_s
+      product_type = pair["productType"].presence || "TAX_WRAPPER"
+      wrapper = {
+        "product_type" => product_type,
+        "securities_account_number" => sec_acc_no,
+        "cash_account_number" => cash_acc_no.presence,
+        "currency" => pair["currency"],
+        "positions" => [],
+        "position_warnings" => [],
+        "warnings" => [],
+        "domain_statuses" => { "cash" => "failed", "portfolio" => "failed" }
+      }
+
+      begin
+        cash = subscribe(websocket, type: "cash", accountNumber: cash_acc_no)
+        cash = Array(cash).find { |entry| entry.is_a?(Hash) && entry["accountNumber"].to_s == cash_acc_no } if cash.is_a?(Array)
+        raise MalformedResponse, "Trade Republic #{product_type} cash response did not contain an amount" if money_amount(cash).nil?
+
+        currency = money_currency(cash).presence || (cash["currencyId"] if cash.is_a?(Hash)).presence || pair["currency"]
+        wrapper["cash"] = { "amount" => decimal_string(money_amount(cash)), "currency" => currency }.compact
+        wrapper["domain_statuses"]["cash"] = "success"
+      rescue MalformedResponse, ProviderUnavailable => e
+        raise if e.is_a?(TransientProviderError)
+        wrapper["warnings"] << "#{product_type} cash fetch failed: #{e.message}"
+      end
+
+      begin
+        portfolio = subscribe(websocket, type: "compactPortfolioByType", secAccNo: sec_acc_no)
+        raise MalformedResponse, "Trade Republic #{product_type} portfolio response did not contain categories" unless portfolio.is_a?(Hash) && portfolio.key?("categories")
+
+        positions, position_warnings = normalize_positions(
+          websocket,
+          portfolio,
+          sec_acc_no: sec_acc_no,
+          known_instrument_symbols: known_instrument_symbols
+        )
+        wrapper["positions"] = positions
+        wrapper["position_warnings"] = position_warnings
+        wrapper["warnings"].concat(position_warnings)
+        wrapper["domain_statuses"]["portfolio"] = "success"
+      rescue MalformedResponse, ProviderUnavailable => e
+        raise if e.is_a?(TransientProviderError)
+        wrapper["warnings"] << "#{product_type} portfolio fetch failed: #{e.message}"
+      end
+
+      wrapper
+    end
+
     def money_amount(value)
       case value
       when Hash
@@ -1690,7 +1765,7 @@ class Provider::TradeRepublicClient
       }.compact
       detail ||= {}
       detail = event_detail.merge(detail) if event_detail.present?
-      event = item.slice("id", "timestamp", "title", "subtitle", "eventType")
+      event = item.slice("id", "timestamp", "title", "subtitle", "eventType", "cashAccountNumber")
         .merge("category" => category, "detail" => detail.presence)
 
       Provider::TradeRepublicTimelineEvent::LIFECYCLE_KEYS.each do |key|

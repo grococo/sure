@@ -73,7 +73,9 @@ class TradeRepublicItem::Importer
       currency = account_info["currency"].presence ||
                  trade_republic_item.currency.presence ||
                  trade_republic_item.family.currency
-      portfolio_account = trade_republic_item.trade_republic_accounts.find_by(kind: "portfolio")
+      portfolio_account = trade_republic_item.trade_republic_accounts.find_by(kind: "portfolio", product_type: TradeRepublicAccount::DEFAULT_PRODUCT_TYPE)
+      tax_wrappers = Array(data["tax_wrappers"]).select { |wrapper| wrapper.is_a?(Hash) && wrapper["securities_account_number"].present? }
+      default_events, wrapper_events = partition_events_by_cash_account(data["events"], tax_wrappers)
 
       portfolio_capped = upsert_kind(
         kind: "portfolio",
@@ -83,7 +85,7 @@ class TradeRepublicItem::Importer
         current_balance: portfolio_balance(data, fallback: portfolio_account&.current_balance),
         cash_balance: 0,
         positions: Array(data["positions"]),
-        events: data["events"],
+        events: default_events,
         topic_event_ids: data["timeline_topic_event_ids"],
         instrument_symbols: data["instrument_symbols"],
         unresolved_symbol_isins: data["unresolved_symbol_isins"],
@@ -101,13 +103,77 @@ class TradeRepublicItem::Importer
         current_balance: cash_balance(data),
         cash_balance: cash_balance(data),
         positions: [],
-        events: Array(data["events"]),
+        events: default_events,
         topic_event_ids: data["timeline_topic_event_ids"],
         instrument_symbols: data["instrument_symbols"],
         warnings: [],
         domain_statuses: domain_statuses
       )
       upsert_crypto_account(account_id, currency, domain_statuses)
+      wrapper_capped = tax_wrappers.flat_map do |wrapper|
+        upsert_tax_wrapper(wrapper, events: wrapper_events.fetch(wrapper["cash_account_number"].to_s, []), data: data, currency: currency, domain_statuses: domain_statuses)
+      end
+      portfolio_capped | cash_capped | wrapper_capped
+    end
+
+    # Timeline events carry the cash account they were booked on. Events of a
+    # tax wrapper's cash account belong to that wrapper; everything else,
+    # including events without an account number, stays on the default pair.
+    def partition_events_by_cash_account(events, tax_wrappers)
+      wrapper_cash_numbers = tax_wrappers.filter_map { |wrapper| wrapper["cash_account_number"].presence&.to_s }.to_set
+      wrapper_events = Hash.new { |hash, key| hash[key] = [] }
+      default_events = Array(events).reject do |event|
+        number = event.is_a?(Hash) ? event["cashAccountNumber"].to_s : ""
+        next false unless wrapper_cash_numbers.include?(number)
+
+        wrapper_events[number] << event
+        true
+      end
+      [ default_events, wrapper_events ]
+    end
+
+    # A tax wrapper (e.g. a French PEA) gets its own Portfolio and Cash
+    # accounts, named after the product, alongside the default pair.
+    def upsert_tax_wrapper(wrapper, events:, data:, currency:, domain_statuses:)
+      product_type = wrapper["product_type"].presence || TradeRepublicAccount::TAX_WRAPPER_PRODUCT_TYPE
+      sec_acc_no = wrapper["securities_account_number"].to_s
+      wrapper_currency = wrapper["currency"].presence || currency
+      statuses = domain_statuses.merge(wrapper["domain_statuses"].to_h.slice("cash", "portfolio"))
+      portfolio_account = trade_republic_item.trade_republic_accounts.find_by(kind: "portfolio", product_type: product_type)
+
+      portfolio_capped = upsert_kind(
+        kind: "portfolio",
+        product_type: product_type,
+        external_id: sec_acc_no,
+        name: build_account_name(sec_acc_no, kind: "portfolio", product_type: product_type),
+        currency: wrapper_currency,
+        current_balance: positions_value(Array(wrapper["positions"]), fallback: portfolio_account&.current_balance),
+        cash_balance: 0,
+        positions: Array(wrapper["positions"]),
+        events: events,
+        topic_event_ids: data["timeline_topic_event_ids"],
+        instrument_symbols: data["instrument_symbols"],
+        unresolved_symbol_isins: data["unresolved_symbol_isins"],
+        warnings: Array(wrapper["position_warnings"]),
+        domain_statuses: statuses
+      )
+      wrapper_cash = wrapper["cash"].is_a?(Hash) ? wrapper["cash"] : {}
+      cash_amount = parse_decimal(wrapper_cash["amount"]) || BigDecimal("0")
+      cash_capped = upsert_kind(
+        kind: "cash",
+        product_type: product_type,
+        external_id: "cash:#{sec_acc_no}",
+        name: build_account_name(sec_acc_no, kind: "cash", product_type: product_type),
+        currency: wrapper_currency,
+        current_balance: cash_amount,
+        cash_balance: cash_amount,
+        positions: [],
+        events: events,
+        topic_event_ids: data["timeline_topic_event_ids"],
+        instrument_symbols: data["instrument_symbols"],
+        warnings: [],
+        domain_statuses: statuses
+      )
       portfolio_capped | cash_capped
     end
 
@@ -116,8 +182,8 @@ class TradeRepublicItem::Importer
     # its balance is stored here. Created once the portfolio holds or traded
     # crypto; it stays unlinked until the user sets it up.
     def upsert_crypto_account(account_id, currency, domain_statuses)
-      portfolio = trade_republic_item.trade_republic_accounts.find_by(kind: "portfolio")
-      crypto = trade_republic_item.trade_republic_accounts.find_by(kind: "crypto")
+      portfolio = trade_republic_item.trade_republic_accounts.find_by(kind: "portfolio", product_type: TradeRepublicAccount::DEFAULT_PRODUCT_TYPE)
+      crypto = trade_republic_item.trade_republic_accounts.find_by(kind: "crypto", product_type: TradeRepublicAccount::DEFAULT_PRODUCT_TYPE)
       return if crypto.nil? && !holds_or_traded_crypto?(portfolio)
 
       crypto ||= trade_republic_item.trade_republic_accounts.build(kind: "crypto")
@@ -147,9 +213,9 @@ class TradeRepublicItem::Importer
       Array(portfolio&.raw_positions_payload).select { |position| TradeRepublicAccount.crypto_position?(position) }
     end
 
-    def upsert_kind(kind:, external_id:, name:, currency:, current_balance:, cash_balance:, positions:, events:, instrument_symbols:, warnings:, domain_statuses:, topic_event_ids: nil, unresolved_symbol_isins: [])
+    def upsert_kind(kind:, external_id:, name:, currency:, current_balance:, cash_balance:, positions:, events:, instrument_symbols:, warnings:, domain_statuses:, topic_event_ids: nil, unresolved_symbol_isins: [], product_type: TradeRepublicAccount::DEFAULT_PRODUCT_TYPE)
       tr_account = trade_republic_item.trade_republic_accounts.find_by(trade_republic_account_id: external_id) ||
-                    trade_republic_item.trade_republic_accounts.find_or_initialize_by(kind: kind)
+                    trade_republic_item.trade_republic_accounts.find_or_initialize_by(kind: kind, product_type: product_type)
       portfolio_status = domain_statuses["portfolio"]
       cash_status = domain_statuses["cash"]
       timeline_status = domain_statuses["timeline"]
@@ -157,6 +223,7 @@ class TradeRepublicItem::Importer
       capped_topics = []
       attrs = {
         trade_republic_account_id: external_id,
+        product_type: product_type,
         name: name,
         currency: currency
       }
@@ -232,7 +299,9 @@ class TradeRepublicItem::Importer
     def force_full_timeline_fetch?
       return false if trade_republic_item.newest_event_id.blank?
 
-      portfolio_accounts = trade_republic_item.trade_republic_accounts.select(&:portfolio?)
+      portfolio_accounts = trade_republic_item.trade_republic_accounts.select do |account|
+        account.portfolio? && account.product_type == TradeRepublicAccount::DEFAULT_PRODUCT_TYPE
+      end
       portfolio_accounts.any? { |account| Array(account.raw_timeline_payload).blank? }
     end
 
@@ -240,10 +309,10 @@ class TradeRepublicItem::Importer
     # the detail (missing, or derived from the rounded total) and dividends
     # without their detail, in the client's backlog order.
     def events_needing_detail_enrichment
-      portfolio = trade_republic_item.trade_republic_accounts.find_by(kind: "portfolio")
-      return [] unless portfolio
+      portfolio_events = trade_republic_item.trade_republic_accounts.where(kind: "portfolio").flat_map { |account| Array(account.raw_timeline_payload) }
+      return [] if portfolio_events.empty?
 
-      Array(portfolio.raw_timeline_payload)
+      portfolio_events
         .select do |event|
           Provider::TradeRepublicClient.incomplete_trade_detail_event?(event) ||
             Provider::TradeRepublicClient.trade_detail_needs_price_backfill?(event) ||
@@ -257,10 +326,10 @@ class TradeRepublicItem::Importer
     # lack an exchange ticker. Incremental syncs stop at newest_event_id, so
     # these must be passed explicitly for instrument lookup.
     def isins_needing_symbol_lookup
-      portfolio = trade_republic_item.trade_republic_accounts.find_by(kind: "portfolio")
-      return [] unless portfolio
+      portfolio_events = trade_republic_item.trade_republic_accounts.where(kind: "portfolio").flat_map { |account| Array(account.raw_timeline_payload) }
+      return [] if portfolio_events.empty?
 
-      Array(portfolio.raw_timeline_payload).filter_map do |event|
+      portfolio_events.filter_map do |event|
         isin = Provider::TradeRepublicClient.symbol_lookup_isin(event)
         isin if isin && Provider::TradeRepublicClient.symbol_lookup_due?(event)
       end.uniq.first(Provider::TradeRepublicClient::MAX_INSTRUMENT_LOOKUPS)
@@ -269,10 +338,10 @@ class TradeRepublicItem::Importer
     # Exchange tickers stored by earlier syncs; the client skips the
     # instrument subscription for these positions.
     def stored_instrument_symbols
-      portfolio = trade_republic_item.trade_republic_accounts.find_by(kind: "portfolio")
-      return {} unless portfolio
+      positions = trade_republic_item.trade_republic_accounts.where(kind: "portfolio").flat_map { |account| Array(account.raw_positions_payload) }
+      return {} if positions.empty?
 
-      Provider::TradeRepublicClient.instrument_symbols_from_positions(portfolio.raw_positions_payload)
+      Provider::TradeRepublicClient.instrument_symbols_from_positions(positions)
     end
 
     # Advance the list cursor whenever timeline pagination finished, even when
@@ -483,8 +552,9 @@ class TradeRepublicItem::Importer
       values.compact.sum(BigDecimal("0"))
     end
 
-    def build_account_name(account_id, kind:)
+    def build_account_name(account_id, kind:, product_type: TradeRepublicAccount::DEFAULT_PRODUCT_TYPE)
       base = I18n.t("trade_republic_items.defaults.name")
+      base = "#{base} #{I18n.t("trade_republic_items.defaults.tax_wrapper_name")}" unless product_type == TradeRepublicAccount::DEFAULT_PRODUCT_TYPE
       suffix = { "cash" => "Cash", "crypto" => "Crypto" }.fetch(kind, "Portfolio")
       account_id.present? ? "#{base} #{suffix} (#{account_id})" : "#{base} #{suffix}"
     end

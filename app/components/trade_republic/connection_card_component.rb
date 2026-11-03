@@ -52,7 +52,7 @@ class TradeRepublic::ConnectionCardComponent < ApplicationComponent
     end
 
     def portfolio_account_id
-      item.trade_republic_accounts.detect { |account| account.kind == "portfolio" }&.trade_republic_account_id
+      item.trade_republic_accounts.detect { |account| account.kind == "portfolio" && account.product_type == TradeRepublicAccount::DEFAULT_PRODUCT_TYPE }&.trade_republic_account_id
     end
 
     def last4(value)

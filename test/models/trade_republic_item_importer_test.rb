@@ -39,6 +39,84 @@ class TradeRepublicItemImporterTest < ActiveSupport::TestCase
     assert_equal 1, account.raw_positions_payload.size
   end
 
+  test "import creates PEA accounts for a tax wrapper and routes its events by cash account" do
+    provider = mock("trade_republic_provider")
+    provider.expects(:sync).returns(client_result(
+      "status" => "ok",
+      "account" => { "brokerage_account_id" => "SEC-DEFAULT", "currency" => "EUR", "cash_account_number" => "CASH-DEFAULT" },
+      "cash" => { "amount" => "31.38", "currency" => "EUR" },
+      "positions" => [],
+      "tax_wrappers" => [
+        {
+          "product_type" => "TAX_WRAPPER",
+          "securities_account_number" => "SEC-PEA",
+          "cash_account_number" => "CASH-PEA",
+          "currency" => "EUR",
+          "cash" => { "amount" => "35.20", "currency" => "EUR" },
+          "positions" => [ { "isin" => "IE0002XZSHO1", "name" => "MSCI World Swap PEA", "quantity" => "900", "price" => "6.50" } ],
+          "position_warnings" => [],
+          "domain_statuses" => { "cash" => "success", "portfolio" => "success" }
+        }
+      ],
+      "events" => [
+        { "id" => "evt-pea-trade", "timestamp" => "2026-10-23T10:00:00Z", "eventType" => "TRADING_TRADE_EXECUTED", "category" => "orderExecution", "cashAccountNumber" => "CASH-PEA" },
+        { "id" => "evt-default-in", "timestamp" => "2026-10-23T09:00:00Z", "eventType" => "BANK_TRANSACTION_INCOMING", "cashAccountNumber" => "CASH-DEFAULT" },
+        { "id" => "evt-no-account", "timestamp" => "2026-10-22T09:00:00Z", "eventType" => "INTEREST_PAYOUT" }
+      ],
+      "warnings" => []
+    ))
+
+    TradeRepublicItem::Importer.new(@item, provider: provider).import
+
+    pea_portfolio = @item.trade_republic_accounts.find_by(kind: "portfolio", product_type: "TAX_WRAPPER")
+    pea_cash = @item.trade_republic_accounts.find_by(kind: "cash", product_type: "TAX_WRAPPER")
+    default_portfolio = @item.trade_republic_accounts.find_by(kind: "portfolio", product_type: "DEFAULT")
+    default_cash = @item.trade_republic_accounts.find_by(kind: "cash", product_type: "DEFAULT")
+
+    assert_equal "SEC-PEA", pea_portfolio.trade_republic_account_id
+    assert_equal "cash:SEC-PEA", pea_cash.trade_republic_account_id
+    assert_equal BigDecimal("5850"), pea_portfolio.current_balance
+    assert_equal BigDecimal("35.20"), pea_cash.current_balance
+    assert_includes pea_portfolio.name, "PEA"
+    assert_equal %w[evt-pea-trade], pea_portfolio.raw_timeline_payload.map { |event| event["id"] }
+    assert_equal %w[evt-default-in evt-no-account], default_portfolio.raw_timeline_payload.map { |event| event["id"] }.sort
+    assert_equal BigDecimal("31.38"), default_cash.current_balance
+    assert_equal pea_cash, pea_portfolio.sibling("cash")
+    assert_equal default_cash, default_portfolio.sibling("cash")
+  end
+
+  test "import keeps the PEA accounts when a later sync misses the tax wrapper portfolio" do
+    wrapper = {
+      "product_type" => "TAX_WRAPPER",
+      "securities_account_number" => "SEC-PEA",
+      "cash_account_number" => "CASH-PEA",
+      "cash" => { "amount" => "10", "currency" => "EUR" },
+      "positions" => [ { "isin" => "IE0002XZSHO1", "name" => "MSCI World Swap PEA", "quantity" => "10", "price" => "6" } ],
+      "domain_statuses" => { "cash" => "success", "portfolio" => "success" }
+    }
+    base = {
+      "status" => "ok",
+      "account" => { "brokerage_account_id" => "SEC-DEFAULT", "currency" => "EUR" },
+      "cash" => { "amount" => "1", "currency" => "EUR" },
+      "positions" => [],
+      "events" => [],
+      "warnings" => []
+    }
+    provider = mock("trade_republic_provider")
+    provider.expects(:sync).twice.returns(
+      client_result(base.merge("tax_wrappers" => [ wrapper ])),
+      client_result(base.merge("tax_wrappers" => [ wrapper.merge("positions" => [], "domain_statuses" => { "cash" => "success", "portfolio" => "failed" }) ]))
+    )
+
+    TradeRepublicItem::Importer.new(@item, provider: provider).import
+    TradeRepublicItem::Importer.new(@item, provider: provider).import
+
+    pea_portfolio = @item.trade_republic_accounts.find_by(kind: "portfolio", product_type: "TAX_WRAPPER")
+    assert_equal BigDecimal("60"), pea_portfolio.current_balance
+    assert_equal 1, pea_portfolio.raw_positions_payload.size
+    assert_equal 4, @item.trade_republic_accounts.count
+  end
+
   test "import creates a Crypto account valued at the crypto positions" do
     provider = mock("trade_republic_provider")
     provider.expects(:sync).returns(client_result(

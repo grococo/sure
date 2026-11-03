@@ -51,6 +51,7 @@ pl:
     duplicate_connection: "To konto Trade Republic jest już połączone. Nowe połączenie zostało usunięte."
     defaults:
       name: Trade Republic
+      tax_wrapper_name: PEA
     destroy:
       success: Zaplanowano usunięcie połączenia Trade Republic.
       unlink_failed: Nie udało się w pełni rozłączyć Trade Republic. Połączenie zostało

@@ -490,6 +490,8 @@ class Account < ApplicationRecord
     def create_from_trade_republic_account(trade_republic_account)
       family = trade_republic_account.trade_republic_item.family
       accountable_type, subtype, default_name = TRADE_REPUBLIC_ACCOUNT_TYPES.fetch(trade_republic_account.kind)
+      # Trade Republic's tax wrapper for French residents is the PEA.
+      subtype = "pea" if trade_republic_account.portfolio? && trade_republic_account.tax_wrapper? && family.country == "FR"
 
       attributes = {
         family: family,
