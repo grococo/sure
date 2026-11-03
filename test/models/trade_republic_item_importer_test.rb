@@ -85,6 +85,38 @@ class TradeRepublicItemImporterTest < ActiveSupport::TestCase
     assert_equal default_cash, default_portfolio.sibling("cash")
   end
 
+  test "import mirrors a PEA deposit debit onto the PEA cash account" do
+    provider = mock("trade_republic_provider")
+    provider.expects(:sync).returns(client_result(
+      "status" => "ok",
+      "account" => { "brokerage_account_id" => "SEC-DEFAULT", "currency" => "EUR" },
+      "cash" => { "amount" => "0", "currency" => "EUR" },
+      "positions" => [],
+      "tax_wrappers" => [
+        { "product_type" => "TAX_WRAPPER", "securities_account_number" => "SEC-PEA", "cash_account_number" => "CASH-PEA",
+          "cash" => { "amount" => "0", "currency" => "EUR" }, "positions" => [],
+          "domain_statuses" => { "cash" => "success", "portfolio" => "success" } }
+      ],
+      "events" => [
+        { "id" => "evt-deposit", "timestamp" => "2026-10-23T10:00:00Z", "eventType" => "PEA_DEPOSIT_DEBIT", "category" => "POC_CREATED",
+          "cashAccountNumber" => "CASH-DEFAULT", "detail" => { "amount" => -747.04, "signed_amount" => -747.04, "currency" => "EUR" } }
+      ],
+      "warnings" => []
+    ))
+
+    TradeRepublicItem::Importer.new(@item, provider: provider).import
+
+    default_cash = @item.trade_republic_accounts.find_by(kind: "cash", product_type: "DEFAULT")
+    pea_cash = @item.trade_republic_accounts.find_by(kind: "cash", product_type: "TAX_WRAPPER")
+    assert_equal %w[evt-deposit], default_cash.raw_timeline_payload.map { |event| event["id"] }
+    credit = pea_cash.raw_timeline_payload.sole
+    assert_equal "evt-deposit:pea_credit", credit["id"]
+    assert_equal "PEA_DEPOSIT_CREDIT", credit["eventType"]
+    assert_equal "PAYMENT_RECEIVED", credit["category"]
+    assert_equal "747.04", credit["detail"]["amount"]
+    assert_equal "747.04", credit["detail"]["signed_amount"]
+  end
+
   test "import keeps the PEA accounts when a later sync misses the tax wrapper portfolio" do
     wrapper = {
       "product_type" => "TAX_WRAPPER",

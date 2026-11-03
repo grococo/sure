@@ -1,5 +1,6 @@
 class TradeRepublicItem::Importer
   MAX_TIMELINE_EVENTS = 5_000
+  PEA_DEPOSIT_DEBIT_EVENT_TYPE = "PEA_DEPOSIT_DEBIT"
   # Fetches the latest Trade Republic state through the provider client and
   # stores normalized raw payloads on the item's accounts.
   #
@@ -129,7 +130,38 @@ class TradeRepublicItem::Importer
         wrapper_events[number] << event
         true
       end
+
+      pea_cash_numbers = tax_wrappers
+        .select { |wrapper| wrapper["product_type"] == TradeRepublicAccount::TAX_WRAPPER_PRODUCT_TYPE }
+        .filter_map { |wrapper| wrapper["cash_account_number"].presence&.to_s }
+      if pea_cash_numbers.one?
+        default_events.each do |event|
+          next unless event.is_a?(Hash) && event["eventType"] == PEA_DEPOSIT_DEBIT_EVENT_TYPE
+
+          wrapper_events[pea_cash_numbers.first] << pea_deposit_credit(event, cash_account_number: pea_cash_numbers.first)
+        end
+      end
+
       [ default_events, wrapper_events ]
+    end
+
+    # Trade Republic books a PEA deposit only as a debit of the default cash
+    # account. The mirrored credit keeps the PEA cash account's history in
+    # line with the trades it settles.
+    def pea_deposit_credit(event, cash_account_number:)
+      detail = event["detail"].is_a?(Hash) ? event["detail"].dup : {}
+      %w[amount signed_amount].each do |key|
+        amount = parse_decimal(detail[key])
+        detail[key] = (-amount).to_s("F") if amount
+      end
+
+      event.merge(
+        "id" => "#{event["id"]}:pea_credit",
+        "eventType" => "PEA_DEPOSIT_CREDIT",
+        "category" => Provider::TradeRepublicTimelineEvent::CATEGORY_DEPOSIT,
+        "cashAccountNumber" => cash_account_number,
+        "detail" => detail.presence
+      )
     end
 
     # A tax wrapper (e.g. a French PEA) gets its own Portfolio and Cash
