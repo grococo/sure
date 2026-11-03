@@ -60,7 +60,12 @@ module Provider::TradeRepublicTimelineEvent
     "TAX_REFUND" => "PAYMENT_RECEIVED",
     "ssp_tax_correction_invoice" => "PAYMENT_RECEIVED",
     "SSP_TAX_CORRECTION" => "PAYMENT_RECEIVED",
-    "CARD_ORDER_FEE" => "POC_CREATED"
+    "CARD_ORDER_FEE" => "POC_CREATED",
+    # Moves cash from the default cash account into the PEA before a PEA
+    # order. Trade Republic books only this debit; the importer adds the
+    # matching PEA_DEPOSIT_CREDIT to the PEA cash account.
+    "PEA_DEPOSIT_DEBIT" => "POC_CREATED",
+    "PEA_DEPOSIT_CREDIT" => "PAYMENT_RECEIVED"
   }.freeze
 
   # Administrative / non-financial timelineActivityLog rows. These stay in the

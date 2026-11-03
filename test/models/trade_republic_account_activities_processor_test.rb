@@ -1048,6 +1048,27 @@ class TradeRepublicAccountActivitiesProcessorTest < ActiveSupport::TestCase
     assert_nil credit.category_id
   end
 
+  test "PEA deposits leave the default cash account and reach the PEA cash account" do
+    cash_account, cash_sure = create_linked_cash_account!
+    pea_cash = @item.trade_republic_accounts.create!(
+      name: "PEA Cash", kind: "cash", product_type: "TAX_WRAPPER", trade_republic_account_id: "cash:SEC-PEA", currency: "EUR"
+    )
+    pea_sure = @family.accounts.create!(name: "Trade Republic PEA Cash", balance: 0, cash_balance: 0, currency: "EUR", accountable: Depository.new)
+    pea_cash.ensure_account_provider!(pea_sure)
+    debit = { id: "evt_pea_dep", timestamp: "2026-10-23T10:00:00Z", eventType: "PEA_DEPOSIT_DEBIT", category: "POC_CREATED",
+              title: "MSCI World Swap PEA EUR (Acc)", detail: { amount: "-6398.10", signed_amount: "-6398.10", currency: "EUR" } }
+    credit = debit.merge(id: "evt_pea_dep:pea_credit", eventType: "PEA_DEPOSIT_CREDIT", category: "PAYMENT_RECEIVED",
+                         detail: { amount: "6398.10", signed_amount: "6398.10", currency: "EUR" })
+    cash_account.update!(raw_timeline_payload: [ debit ])
+    pea_cash.update!(raw_timeline_payload: [ credit ])
+
+    TradeRepublicAccount::ActivitiesProcessor.new(cash_account.reload).process
+    TradeRepublicAccount::ActivitiesProcessor.new(pea_cash.reload).process
+
+    assert_equal BigDecimal("6398.10"), cash_sure.entries.find_by!(external_id: "trade_republic_event_evt_pea_dep").amount
+    assert_equal BigDecimal("-6398.10"), pea_sure.entries.find_by!(external_id: "trade_republic_event_evt_pea_dep:pea_credit").amount
+  end
+
   test "resets deposits that earlier syncs stored as investment contributions" do
     cash_account, cash_sure = create_linked_cash_account!
     category = @family.investment_contributions_category
