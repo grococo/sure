@@ -318,6 +318,61 @@ class TradeRepublicClientTest < ActiveSupport::TestCase
     refute @client.send(:login_process_completed?, { "state" => "PENDING" })
   end
 
+  test "sync returns the cash and positions of a tax wrapper account pair" do
+    stub_sync_session
+    requested = []
+    @client.define_singleton_method(:subscribe) do |_websocket, payload|
+      requested << payload
+      case payload[:type]
+      when "accountPairs"
+        { "accounts" => [
+          { "securitiesAccountNumber" => "SEC-1", "cashAccountNumber" => "CASH-1", "productType" => "DEFAULT", "currency" => "EUR" },
+          { "securitiesAccountNumber" => "SEC-PEA", "cashAccountNumber" => "CASH-PEA", "productType" => "TAX_WRAPPER", "currency" => "EUR" }
+        ] }
+      when "cash"
+        account = payload[:accountNumber] || "CASH-1"
+        [ { "accountNumber" => account, "currencyId" => "EUR", "amount" => account == "CASH-PEA" ? 35.2 : 31.38 } ]
+      when "compactPortfolioByType"
+        { "categories" => [] }
+      when "timelineTransactions"
+        { "items" => [ { "id" => "tx-pea", "timestamp" => "2026-10-23", "eventType" => "TRADING_TRADE_EXECUTED", "cashAccountNumber" => "CASH-PEA" } ], "cursors" => {} }
+      else
+        { "items" => [], "cursors" => {} }
+      end
+    end
+    pea_position = { "isin" => "IE0002XZSHO1", "quantity" => "900", "price" => "6.5" }
+    @client.stubs(:normalize_positions).returns([ [], [] ])
+    @client.stubs(:normalize_positions).with(anything, anything, has_entry(sec_acc_no: "SEC-PEA")).returns([ [ pea_position ], [] ])
+
+    result = @client.sync(session_txt: "session")
+
+    assert_equal "CASH-1", result["account"]["cash_account_number"]
+    assert_equal 1, result["tax_wrappers"].size
+    wrapper = result["tax_wrappers"].first
+    assert_equal "TAX_WRAPPER", wrapper["product_type"]
+    assert_equal "SEC-PEA", wrapper["securities_account_number"]
+    assert_equal "CASH-PEA", wrapper["cash_account_number"]
+    assert_equal({ "amount" => "35.2", "currency" => "EUR" }, wrapper["cash"])
+    assert_equal [ pea_position ], wrapper["positions"]
+    assert_equal({ "cash" => "success", "portfolio" => "success" }, wrapper["domain_statuses"])
+    assert_includes requested, { type: "compactPortfolioByType", secAccNo: "SEC-PEA" }
+    assert_equal "CASH-PEA", result["events"].find { |event| event["id"] == "tx-pea" }["cashAccountNumber"]
+  end
+
+  test "sync without account pairs returns no tax wrappers" do
+    stub_sync_session
+    @client.define_singleton_method(:subscribe) do |_websocket, payload|
+      raise Provider::TradeRepublicClient::ProviderUnavailable, "unknown topic" if payload[:type] == "accountPairs"
+
+      { "items" => [], "cursors" => {} }
+    end
+
+    result = @client.sync(session_txt: "session")
+
+    assert_equal [], result["tax_wrappers"]
+    assert_nil result["account"]["cash_account_number"]
+  end
+
   test "extracts cash from nested money payloads" do
     payload = { "cash" => { "available" => { "value" => "123.45", "currency" => "EUR" } } }
 
@@ -1626,4 +1681,14 @@ class TradeRepublicClientTest < ActiveSupport::TestCase
     assert_equal "ABN", symbols.dig("NL0000303709", "symbol")
     assert_equal "XETR", symbols.dig("NL0000303709", "exchange_slug")
   end
+
+  private
+    def stub_sync_session
+      account_response = Net::HTTPOK.new("1.1", "200", "OK")
+      account_response.stubs(:body).returns({ securitiesAccountNumber: "SEC-1", currency: "EUR" }.to_json)
+      session = stub(get: account_response, websocket_headers: {}, cookies_blob: "session")
+      @client.stubs(:new_session).returns(session)
+      websocket = stub(send_text: nil, receive: "connected", close: nil)
+      Provider::TradeRepublicWebsocket.stubs(:new).returns(stub(connect: websocket))
+    end
 end

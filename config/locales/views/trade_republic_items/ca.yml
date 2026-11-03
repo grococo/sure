@@ -153,6 +153,7 @@ ca:
         round_up: Round up
     defaults:
       name: Trade Republic
+      tax_wrapper_name: PEA
     sync_status:
       no_accounts: Encara no s'ha descobert cap compte de Trade Republic
       all_linked:

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_29_120000) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_03_160000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
   enable_extension "pgcrypto"
@@ -2646,12 +2646,13 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_29_120000) do
     t.string "kind", default: "portfolio", null: false
     t.datetime "last_positions_sync"
     t.string "name"
+    t.string "product_type", default: "DEFAULT", null: false
     t.jsonb "raw_positions_payload", default: [], null: false
     t.jsonb "raw_timeline_payload", default: [], null: false
     t.string "trade_republic_account_id"
     t.uuid "trade_republic_item_id", null: false
     t.datetime "updated_at", null: false
-    t.index ["trade_republic_item_id", "kind"], name: "idx_on_trade_republic_item_id_kind_3b60cc72fb", unique: true
+    t.index ["trade_republic_item_id", "product_type", "kind"], name: "index_trade_republic_accounts_on_item_product_type_and_kind", unique: true
     t.index ["trade_republic_item_id", "trade_republic_account_id"], name: "index_trade_republic_accounts_on_item_and_account_id", unique: true, where: "(trade_republic_account_id IS NOT NULL)"
     t.index ["trade_republic_item_id"], name: "index_trade_republic_accounts_on_trade_republic_item_id"
   end

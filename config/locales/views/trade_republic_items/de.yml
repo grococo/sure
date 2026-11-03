@@ -9,6 +9,7 @@ de:
     duplicate_connection: "Dieses Trade-Republic-Konto ist bereits verbunden. Die neue Verbindung wurde entfernt."
     defaults:
       name: Trade Republic
+      tax_wrapper_name: PEA
     portfolio_categories:
       brokerage: "Brokerage"
       private_markets: "Private Märkte"

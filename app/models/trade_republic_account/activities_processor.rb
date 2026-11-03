@@ -612,7 +612,7 @@ class TradeRepublicAccount::ActivitiesProcessor
 
     def reconcile_split_portfolio_transactions!
       return unless @trade_republic_account.portfolio? && linked_cash_account_present?
-      cash_account = @trade_republic_account.trade_republic_item.trade_republic_accounts.find_by(kind: "cash")
+      cash_account = @trade_republic_account.sibling("cash")
       return unless cash_account
 
       cash_event_ids = Array(cash_account.raw_timeline_payload).filter_map do |event|
@@ -928,7 +928,7 @@ class TradeRepublicAccount::ActivitiesProcessor
 
     def linked_cash_account_present?
       @trade_republic_account.trade_republic_item.trade_republic_accounts
-        .where(kind: "cash")
+        .where(kind: "cash", product_type: @trade_republic_account.product_type)
         .joins(:account_provider)
         .exists?
     end
