@@ -1,0 +1,14 @@
+---
+en:
+  allocation_targets:
+    edit:
+      title: Target allocation
+      subtitle: Share of %{account} each holding should represent, in %.
+      no_holdings: This account has no holdings yet.
+      placeholder: "Now %{percent}"
+      hint: Leave a field empty to remove its target. Targets may add up to at most 100%.
+      cancel: Cancel
+      submit: Save
+    update:
+      over_100: Targets add up to %{total}%, more than 100%.
+      updated: Target allocation saved.

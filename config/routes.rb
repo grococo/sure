@@ -452,6 +452,12 @@ Rails.application.routes.draw do
     get :picker, on: :collection
   end
 
+  # Phone-friendly home: net worth, budget, target allocations and loans.
+  resource :summary, only: :show
+  resources :accounts, only: [] do
+    resource :allocation_targets, only: %i[edit update]
+  end
+
   # Hub page fronting budgets + goals under a single "Plan" nav entry.
   resource :plan, only: :show
 

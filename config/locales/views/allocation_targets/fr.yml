@@ -1,0 +1,14 @@
+---
+fr:
+  allocation_targets:
+    edit:
+      title: Répartition cible
+      subtitle: Part de %{account} que chaque ligne doit représenter, en %.
+      no_holdings: Ce compte n'a encore aucune position.
+      placeholder: "Actuellement %{percent}"
+      hint: Laisse un champ vide pour retirer sa cible. Le total ne doit pas dépasser 100 %.
+      cancel: Annuler
+      submit: Enregistrer
+    update:
+      over_100: Les cibles totalisent %{total} %, soit plus de 100 %.
+      updated: Répartition cible enregistrée.

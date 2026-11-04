@@ -1,0 +1,58 @@
+<%# locals: (allocation:, contribution:) %>
+<% account = allocation.account %>
+<%= render DS::Card.new(id: dom_id(account, :allocation)) do %>
+  <div class="flex items-start justify-between gap-2">
+    <%= render "summaries/card_header", icon: "chart-pie", title: account.name %>
+    <%= render DS::Link.new(icon: "pencil", variant: "ghost", size: "sm", href: edit_account_allocation_targets_path(account), frame: :modal, aria: { label: t(".edit_targets") }, title: t(".edit_targets")) %>
+  </div>
+
+  <p class="text-3xl font-medium text-primary tabular-nums privacy-sensitive">
+    <%= link_to format_money(allocation.total), account_path(account), class: "hover:underline" %>
+  </p>
+
+  <% if allocation.lines.empty? %>
+    <p class="text-sm text-secondary mt-3"><%= t(".no_holdings") %></p>
+  <% else %>
+    <ul class="mt-4">
+      <% allocation.lines.each_with_index do |line, index| %>
+        <li class="py-2.5 flex items-center gap-3 <%= "border-b border-divider" unless index == allocation.lines.size - 1 %>">
+          <div class="flex-1 min-w-0">
+            <p class="text-sm text-primary truncate"><%= line.name %></p>
+            <p class="text-xs text-subdued tabular-nums privacy-sensitive"><%= format_money(line.value) %></p>
+          </div>
+          <div class="text-right shrink-0">
+            <p class="text-sm tabular-nums text-primary"><%= number_to_percentage(line.actual_percent, precision: 1) %></p>
+            <% if line.target_percent %>
+              <% drift = line.gap_percent.abs >= 2 %>
+              <p class="text-xs tabular-nums <%= drift ? "text-warning" : "text-subdued" %>">
+                <%= t(".target", percent: number_to_percentage(line.target_percent, precision: 0, strip_insignificant_zeros: true)) %>
+              </p>
+            <% end %>
+          </div>
+        </li>
+      <% end %>
+    </ul>
+  <% end %>
+
+  <% if allocation.targets? %>
+    <% split = allocation.contribution_split(contribution) %>
+    <div class="mt-4 pt-4 border-t border-divider">
+      <%= styled_form_with url: summary_path, method: :get, namespace: dom_id(account, :contribution), class: "flex items-end gap-2 mb-3" do |f| %>
+        <div class="flex-1">
+          <%= f.number_field :contribution, label: t(".next_contribution"), value: contribution.to_i, min: 1, step: 1,
+                inputmode: "numeric", class: "form-field__input privacy-sensitive privacy-sensitive-interactive" %>
+        </div>
+        <%= render DS::Button.new(text: t(".recalculate"), variant: "secondary", size: "sm", type: "submit") %>
+      <% end %>
+      <dl class="space-y-2">
+        <% split.each do |security, money| %>
+          <%= render DS::DetailRow.new(label: security.name.presence || security.ticker, value: format_money(money), align: :center, truncate: true, value_class: "tabular-nums privacy-sensitive") %>
+        <% end %>
+      </dl>
+    </div>
+  <% else %>
+    <div class="mt-4">
+      <%= render DS::Link.new(text: t(".set_targets"), icon: "target", variant: "secondary", size: "sm", href: edit_account_allocation_targets_path(account), frame: :modal) %>
+    </div>
+  <% end %>
+<% end %>

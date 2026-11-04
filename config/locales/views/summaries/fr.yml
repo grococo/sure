@@ -1,0 +1,19 @@
+---
+fr:
+  summaries:
+    show:
+      title: Synthèse
+      subtitle: Patrimoine, budget du mois, répartition cible et prêts en un coup d'œil.
+    net_worth_card:
+      title: Patrimoine net
+    loans_card:
+      title: Prêts
+      empty: Ajoute ton prêt immobilier comme compte de prêt pour suivre le capital restant dû.
+      add_loan: Ajouter un prêt
+    allocation_card:
+      edit_targets: Modifier la répartition cible
+      no_holdings: Aucune position pour l'instant.
+      target: cible %{percent}
+      next_contribution: Prochain versement
+      recalculate: Recalculer
+      set_targets: Définir une répartition cible

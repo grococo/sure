@@ -1,0 +1,19 @@
+---
+en:
+  summaries:
+    show:
+      title: Summary
+      subtitle: Net worth, this month's budget, target allocations and loans at a glance.
+    net_worth_card:
+      title: Net worth
+    loans_card:
+      title: Loans
+      empty: Add your mortgage as a loan account to follow what is left to repay.
+      add_loan: Add a loan
+    allocation_card:
+      edit_targets: Edit target allocation
+      no_holdings: No holdings yet.
+      target: target %{percent}
+      next_contribution: Next contribution
+      recalculate: Recalculate
+      set_targets: Set a target allocation

@@ -1,0 +1,12 @@
+<%# locals: (balance_sheet:) %>
+<%= render DS::Card.new do %>
+  <%= render "summaries/card_header", icon: "landmark", title: t(".title") %>
+  <p class="text-3xl font-medium text-primary tabular-nums privacy-sensitive">
+    <%= format_money(balance_sheet.net_worth_money) %>
+  </p>
+  <dl class="mt-4 space-y-2">
+    <% balance_sheet.classification_groups.each do |group| %>
+      <%= render DS::DetailRow.new(label: group.name, value: format_money(group.total_money), align: :center, value_class: "tabular-nums privacy-sensitive") %>
+    <% end %>
+  </dl>
+<% end %>

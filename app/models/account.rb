@@ -23,6 +23,7 @@ class Account < ApplicationRecord
   has_many :valuations, through: :entries, source: :entryable, source_type: "Valuation"
   has_many :trades, through: :entries, source: :entryable, source_type: "Trade"
   has_many :holdings, dependent: :destroy
+  has_many :allocation_targets, dependent: :destroy
   has_many :balances, dependent: :destroy
   has_many :recurring_transactions, dependent: :destroy
   has_many :goal_accounts, dependent: :destroy
@@ -589,6 +590,10 @@ class Account < ApplicationRecord
     # This provides a cleaner recovery path than the generic scheduled_for_deletion flag
     disable! if may_disable?
     raise e
+  end
+
+  def allocation
+    Account::Allocation.new(self)
   end
 
   def current_holdings

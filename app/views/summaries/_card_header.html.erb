@@ -1,0 +1,10 @@
+<%# locals: (icon:, title:, subtitle: nil) %>
+<div class="flex items-center gap-2 mb-4 min-w-0">
+  <span class="w-7 h-7 rounded-lg bg-surface-inset text-secondary flex items-center justify-center shrink-0">
+    <%= icon(icon, size: "sm") %>
+  </span>
+  <h2 class="text-sm font-medium text-primary truncate"><%= title %></h2>
+  <% if subtitle.present? %>
+    <span class="text-xs text-subdued truncate">· <%= subtitle %></span>
+  <% end %>
+</div>

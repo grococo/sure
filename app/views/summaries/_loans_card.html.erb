@@ -1,0 +1,16 @@
+<%# locals: (loans:) %>
+<%= render DS::Card.new do %>
+  <%= render "summaries/card_header", icon: "house", title: t(".title") %>
+  <% if loans.any? %>
+    <dl class="space-y-2">
+      <% loans.each do |loan| %>
+        <%= render DS::DetailRow.new(label: loan.name, align: :center, value_class: "tabular-nums privacy-sensitive") do |row| %>
+          <% row.with_value { link_to format_money(loan.balance_money), account_path(loan), class: "hover:underline" } %>
+        <% end %>
+      <% end %>
+    </dl>
+  <% else %>
+    <p class="text-sm text-secondary mb-3"><%= t(".empty") %></p>
+    <%= render DS::Link.new(text: t(".add_loan"), icon: "plus", variant: "secondary", size: "sm", href: new_loan_path, frame: :modal) %>
+  <% end %>
+<% end %>

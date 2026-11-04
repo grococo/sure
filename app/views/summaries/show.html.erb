@@ -1,0 +1,17 @@
+<%# A short home built for the phone: four cards, each linking to the full
+    page. Budget reuses the Plan hub's card. %>
+<div class="@container space-y-4 pb-6 lg:pb-12">
+  <header>
+    <h1 class="text-2xl font-semibold text-primary"><%= t(".title") %></h1>
+    <p class="text-sm text-secondary mt-1"><%= t(".subtitle") %></p>
+  </header>
+
+  <div class="grid grid-cols-1 @3xl:grid-cols-2 gap-4 items-start">
+    <%= render "summaries/net_worth_card", balance_sheet: @balance_sheet %>
+    <%= render "plans/budget_card", budget: @budget, top_budget_categories: @top_budget_categories, editable: @budget_editable, switch_options: @budget_switch_options %>
+    <% @allocations.each do |allocation| %>
+      <%= render "summaries/allocation_card", allocation: allocation, contribution: @contribution %>
+    <% end %>
+    <%= render "summaries/loans_card", loans: @loans %>
+  </div>
+</div>

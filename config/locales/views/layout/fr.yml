@@ -11,6 +11,7 @@ fr:
         home: Accueil
         plan: Plan
         reports: Rapports
+        summary: Synthèse
         transactions: Transactions
       privacy_mode: Activer/désactiver le mode confidentialité
       resize_left_sidebar: Redimensionner la barre latérale des comptes

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_03_160000) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_04_100000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
   enable_extension "pgcrypto"
@@ -223,6 +223,17 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_03_160000) do
     t.text "user_token"
     t.index ["family_id"], name: "index_akahu_items_on_family_id"
     t.index ["status"], name: "index_akahu_items_on_status"
+  end
+
+  create_table "allocation_targets", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.uuid "account_id", null: false
+    t.datetime "created_at", null: false
+    t.uuid "security_id", null: false
+    t.decimal "target_percent", precision: 5, scale: 2, null: false
+    t.datetime "updated_at", null: false
+    t.index ["account_id", "security_id"], name: "index_allocation_targets_on_account_id_and_security_id", unique: true
+    t.index ["security_id"], name: "index_allocation_targets_on_security_id"
+    t.check_constraint "target_percent >= 0::numeric AND target_percent <= 100::numeric", name: "chk_allocation_targets_percent_range"
   end
 
   create_table "api_keys", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
@@ -2937,6 +2948,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_03_160000) do
   add_foreign_key "active_storage_variant_records", "active_storage_blobs", column: "blob_id"
   add_foreign_key "akahu_accounts", "akahu_items"
   add_foreign_key "akahu_items", "families"
+  add_foreign_key "allocation_targets", "accounts", on_delete: :cascade
+  add_foreign_key "allocation_targets", "securities", on_delete: :cascade
   add_foreign_key "api_keys", "users"
   add_foreign_key "balances", "accounts", on_delete: :cascade
   add_foreign_key "binance_accounts", "binance_items"
